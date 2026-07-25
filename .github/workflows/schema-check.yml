@@ -1,0 +1,40 @@
+# ============================================================================
+# CI guard for the two-tier schema-sync contract.
+#
+# The Worker and the evaluator are separate deployment units and cannot import
+# from each other, so the canonical files in shared/ are physically copied into
+# worker/src and actions/src. This job re-runs the copy in --check mode and
+# fails if any copy has drifted, so the two tiers can never ship disagreeing
+# schemas. It also syntax-checks every source file.
+# ============================================================================
+name: schema-check
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Shared copies are in sync with shared/
+        run: node scripts/sync-shared.mjs --check
+
+      - name: Syntax-check every source file
+        run: |
+          set -e
+          for f in $(find shared worker/src actions/src scripts -name '*.js' -o -name '*.mjs'); do
+            node --check "$f"
+          done
+          echo "all files parse"

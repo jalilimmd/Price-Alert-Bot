@@ -1,0 +1,66 @@
+# ============================================================================
+# Keeps the scheduled `alerts` workflow alive.
+#
+# WHY THIS EXISTS: GitHub automatically disables scheduled workflows in a public
+# repository after 60 days with no repository activity, and ONLY a new commit on
+# the default branch resets that timer — tags, issues and PRs do not count. This
+# bot writes its state to a Gist, not to the repo, so without intervention the
+# repo would go silent and `alerts` would be disabled after 60 days, stopping
+# every alert with no error banner.
+#
+# This job runs weekly and, at most once every ~40 days, writes a timestamp into
+# .keepalive and commits it, which resets the inactivity timer well before the
+# 60-day cutoff. It is deliberately conservative about how often it commits so it
+# does not spam the history.
+# ============================================================================
+name: keepalive
+
+on:
+  schedule:
+    - cron: "17 4 * * 1" # Mondays 04:17 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: write # this is the one workflow allowed to push, and only to .keepalive
+
+concurrency:
+  group: keepalive
+  cancel-in-progress: false
+
+jobs:
+  poke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Commit a marker if the last one is old enough
+        run: |
+          set -e
+          MARKER=.keepalive
+          THRESHOLD_DAYS=40
+          now=$(date -u +%s)
+
+          if [ -f "$MARKER" ]; then
+            last=$(git log -1 --format=%ct -- "$MARKER" 2>/dev/null || echo 0)
+          else
+            last=0
+          fi
+
+          age_days=$(( (now - last) / 86400 ))
+          echo "last marker commit was ${age_days} day(s) ago (threshold ${THRESHOLD_DAYS})"
+
+          if [ "$age_days" -lt "$THRESHOLD_DAYS" ]; then
+            echo "recent enough; nothing to do"
+            exit 0
+          fi
+
+          date -u +"keepalive %Y-%m-%dT%H:%M:%SZ" > "$MARKER"
+          git config user.name  "keepalive-bot"
+          git config user.email "keepalive-bot@users.noreply.github.com"
+          git add "$MARKER"
+          git commit -m "chore: keepalive marker to prevent 60-day workflow disable"
+          git push
+          echo "pushed keepalive marker"

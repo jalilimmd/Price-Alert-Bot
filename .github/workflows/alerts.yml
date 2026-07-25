@@ -1,0 +1,90 @@
+# ============================================================================
+# TIER 2 — scheduled price evaluation and alert delivery.
+#
+# Owns and writes: runtime.json, history.json (in one Gist).
+# Reads: alerts.json. Never calls getUpdates (a webhook is registered by the
+# Worker, and the two are mutually exclusive).
+# ============================================================================
+name: alerts
+
+on:
+  schedule:
+    # Every 5 minutes. GitHub's scheduler is best-effort and commonly 5–20 min
+    # late at peak; all timing logic uses real timestamps, never run counts, so
+    # irregular spacing is fine. The 5-minute field is the minimum GitHub allows.
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "run = evaluate alerts · diagnose = probe endpoints only (no writes, no alerts)"
+        type: choice
+        default: run
+        options: [run, diagnose]
+      dry_run:
+        description: "true = evaluate but do not write the Gist or send messages"
+        type: boolean
+        default: false
+
+# One run at a time. cancel-in-progress:false means a run that is already
+# executing is never killed; at most one further run queues behind it and any
+# extra triggers are dropped. Two overlapping runs therefore cannot both write
+# the files this tier owns. We do NOT want to cancel the in-flight run, because
+# it may be mid-write.
+concurrency:
+  group: alerts-evaluation
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  evaluate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      # Zero runtime dependencies by design, so there is nothing to install and
+      # no lockfile to restore. This keeps every run fast and removes supply-chain
+      # surface. The only thing that runs is Node against the committed source.
+
+      - name: Run
+        working-directory: actions
+        env:
+          # --- required ---
+          GIST_ID: ${{ secrets.GIST_ID }}
+          GH_GIST_TOKEN: ${{ secrets.GH_GIST_TOKEN }}
+          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+          # --- optional ---
+          ADMIN_CHAT_ID: ${{ secrets.ADMIN_CHAT_ID }}
+          BRSAPI_KEY: ${{ secrets.BRSAPI_KEY }}
+          # --- secondary channel (ntfy) ---
+          NTFY_ENABLED: ${{ vars.NTFY_ENABLED }}
+          NTFY_SERVER: ${{ vars.NTFY_SERVER }}
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+          NTFY_TOKEN: ${{ secrets.NTFY_TOKEN }}
+          # --- third channel (Bale, off unless configured) ---
+          BALE_ENABLED: ${{ vars.BALE_ENABLED }}
+          BALE_BOT_TOKEN: ${{ secrets.BALE_BOT_TOKEN }}
+          BALE_CHAT_ID: ${{ secrets.BALE_CHAT_ID }}
+          # --- tuning (all optional; sensible defaults live in config.js) ---
+          BTC_SOURCE_ORDER: ${{ vars.BTC_SOURCE_ORDER }}
+          GOLD_SOURCE_ORDER: ${{ vars.GOLD_SOURCE_ORDER }}
+          USDT_SOURCE_ORDER: ${{ vars.USDT_SOURCE_ORDER }}
+          SOURCE_TIMEOUT_MS: ${{ vars.SOURCE_TIMEOUT_MS }}
+          MAX_SPREAD_PCT: ${{ vars.MAX_SPREAD_PCT }}
+          STALE_IDENTICAL_RUNS: ${{ vars.STALE_IDENTICAL_RUNS }}
+          # --- dispatch input passthrough ---
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          if [ "${{ inputs.mode }}" = "diagnose" ]; then
+            node src/diagnose.js
+          else
+            node src/run.js
+          fi

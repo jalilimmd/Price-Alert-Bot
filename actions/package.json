@@ -1,0 +1,12 @@
+{
+  "name": "price-alert-bot-actions",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Tier 2: scheduled price evaluation and alert delivery. Zero runtime dependencies.",
+  "scripts": {
+    "start": "node src/run.js",
+    "diagnose": "node src/diagnose.js"
+  },
+  "engines": { "node": ">=22" }
+}

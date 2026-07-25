@@ -1,0 +1,15 @@
+{
+  "name": "price-alert-bot",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Two-tier Telegram price alert bot: Cloudflare Workers for commands, GitHub Actions for evaluation, one Gist for state.",
+  "scripts": {
+    "sync": "node scripts/sync-shared.mjs",
+    "sync:check": "node scripts/sync-shared.mjs --check",
+    "run:alerts": "node actions/src/run.js",
+    "diagnose": "node actions/src/diagnose.js",
+    "deploy:worker": "cd worker && npx wrangler deploy"
+  },
+  "engines": { "node": ">=22" }
+}

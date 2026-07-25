@@ -1,0 +1,15 @@
+{
+  "name": "price-alert-bot-worker",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Tier 1: Telegram webhook receiver on Cloudflare Workers. Zero runtime dependencies.",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "tail": "wrangler tail"
+  },
+  "devDependencies": {
+    "wrangler": "^4.0.0"
+  }
+}

@@ -1,0 +1,9 @@
+# Local development only. Copy to worker/.dev.vars (gitignored) for `wrangler dev`.
+# In production these are set via `wrangler secret put`, NOT from this file.
+BOT_TOKEN="123456:your-bot-token"
+GITHUB_TOKEN="github_pat_your_fine_grained_gists_rw_token"
+GIST_ID="your32charhexgistid"
+WEBHOOK_SECRET_TOKEN="run scripts/generate-secrets.mjs"
+WEBHOOK_PATH_SECRET="run scripts/generate-secrets.mjs"
+ALLOWED_CHAT_IDS="123456789"
+BRSAPI_KEY=""

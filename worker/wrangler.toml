@@ -1,0 +1,59 @@
+# ============================================================================
+# TIER 1 — Cloudflare Workers (free plan)
+#
+# Deploy:  cd worker && npx wrangler deploy
+#
+# NO SECRET VALUE APPEARS IN THIS FILE. Everything sensitive is set with
+# `wrangler secret put NAME`, which stores it encrypted on Cloudflare and never
+# writes it to the repository. The list of required secrets is at the bottom.
+# ============================================================================
+
+name = "price-alert-bot"
+main = "src/index.js"
+
+# Pin the runtime date so a future Workers release cannot silently change
+# behaviour under the deployment. Bump deliberately, not accidentally.
+compatibility_date = "2026-07-01"
+
+# Gives the Worker the Node-flavoured globals it expects and, more importantly,
+# keeps `fetch`, `crypto.getRandomValues` and `AbortSignal.timeout` on their
+# standard semantics.
+compatibility_flags = ["nodejs_compat"]
+
+# Free plan is 100,000 requests/day, 1,000 requests/min, 10 ms CPU per request
+# and 50 external subrequests per invocation (verified against Cloudflare's
+# limits page, 2026-07-24). This Worker does no meaningful computation: it
+# parses a small JSON body and awaits network calls, and waiting on fetch()
+# does not count toward CPU time. The heaviest command is /price with three
+# concurrent upstream calls, well inside the 50-subrequest and 6-concurrent-
+# connection ceilings.
+workers_dev = true
+
+[observability]
+enabled = true
+
+[observability.logs]
+enabled = true
+
+# --- Non-secret configuration -----------------------------------------------
+[vars]
+# Optional. Purely cosmetic; used in the /health payload.
+DEPLOY_LABEL = "price-alert-bot"
+
+# ============================================================================
+# REQUIRED SECRETS — set each of these once, after the first deploy:
+#
+#   npx wrangler secret put BOT_TOKEN            # from @BotFather
+#   npx wrangler secret put GITHUB_TOKEN         # fine-grained PAT, Gists: RW
+#   npx wrangler secret put GIST_ID              # the 32-char id from the URL
+#   npx wrangler secret put WEBHOOK_SECRET_TOKEN # 48 random [A-Za-z0-9_-]
+#   npx wrangler secret put WEBHOOK_PATH_SECRET  # 32 random [A-Za-z0-9]
+#   npx wrangler secret put ALLOWED_CHAT_IDS     # e.g. 123456789,987654321
+#
+# OPTIONAL SECRET:
+#   npx wrangler secret put BRSAPI_KEY           # free key from brsapi.ir
+#     Without it the gold chain falls back to TGJU, which needs no key.
+#
+# Verify afterwards:  npx wrangler secret list
+#                     curl https://<your-worker>.workers.dev/health
+# ============================================================================

@@ -205,24 +205,89 @@ function shortType(t) {
   );
 }
 
+/**
+ * One asset block for /price, in descending order of trustworthiness:
+ *   live value  ->  the evaluation tier's last recorded value  ->  why neither.
+ * The failure branch prints the real per-adapter errors, not just their names:
+ * "brsapi → tgju" says nothing an operator can act on, whereas the underlying
+ * message distinguishes an unreachable host from a renamed field or a bad key.
+ */
+function renderPriceBlock(asset, r, ctx) {
+  const meta = ASSET_META[asset];
+  const lines = [`<b>${escapeHtml(meta.faShort)}</b>`];
+
+  if (r && r.ok) {
+    lines.push(`${fmtPrice(asset, r.price)}`);
+    lines.push(`<i>زنده · منبع: ${escapeHtml(r.source)} · روش: ${escapeHtml(methodFa(r.method))}</i>`);
+    return lines;
+  }
+
+  const st = ctx.runtime && ctx.runtime.sources ? ctx.runtime.sources[asset] : null;
+  if (st && st.last_price !== null && st.last_price !== undefined) {
+    lines.push(`${fmtPrice(asset, st.last_price)}`);
+    lines.push(
+      `<i>⚠️ زنده نیست — آخرین مقدار ثبت‌شده توسط تِیر ارزیابی (${escapeHtml(fmtAgo(st.last_ok_at))})` +
+        (st.last_source ? ` · منبع: ${escapeHtml(st.last_source)}` : '') +
+        '</i>'
+    );
+    return lines;
+  }
+
+  const why = r && r.attempts ? r.attempts.map((a) => `${a.adapter}: ${a.error}`).join('\n') : 'نامشخص';
+  lines.push('❌ در دسترس نیست — همهٔ منابع زنجیره ناموفق بودند');
+  lines.push(`<i>${escapeHtml(why)}</i>`);
+  if (ctx.runtimeError) {
+    lines.push(`<i>runtime.json هم خوانده نشد: ${escapeHtml(ctx.runtimeError)}</i>`);
+  } else if (!ctx.runtimeExists) {
+    lines.push('<i>runtime.json وجود ندارد — تِیر ارزیابی (GitHub Actions) هنوز اجرا نشده است.</i>');
+  } else if (st && st.last_error) {
+    lines.push(`<i>تِیر ارزیابی هم ناموفق بوده: ${escapeHtml(String(st.last_error).slice(0, 300))}</i>`);
+  }
+  return lines;
+}
+
 export async function cmdPrice(env) {
   const cfg = { ...DEFAULT_CONFIG, retries: 0, timeoutMs: 3500, brsapiKey: env.BRSAPI_KEY || '' };
+  const order = [ASSETS.BTC_USDT, ASSETS.GOLD18, ASSETS.USDT_IRT];
   const all = await fetchAllPrices(cfg);
-  const lines = ['<b>قیمت لحظه‌ای</b> — گرفته‌شده همین الان توسط Worker', ''];
 
-  for (const asset of [ASSETS.BTC_USDT, ASSETS.GOLD18, ASSETS.USDT_IRT]) {
-    const r = all[asset];
-    const meta = ASSET_META[asset];
-    if (r && r.ok) {
-      lines.push(`<b>${escapeHtml(meta.faShort)}</b>`);
-      lines.push(`${fmtPrice(asset, r.price)}`);
-      lines.push(`<i>منبع: ${escapeHtml(r.source)} · روش: ${escapeHtml(methodFa(r.method))}</i>`);
-    } else {
-      const why = (r && r.attempts ? r.attempts.map((a) => a.adapter).join(' → ') : 'نامشخص');
-      lines.push(`<b>${escapeHtml(meta.faShort)}</b>`);
-      lines.push(`❌ در دسترس نیست — همهٔ منابع زنجیره ناموفق بودند (${escapeHtml(why)})`);
+  // A chain that fails HERE is usually unreachable rather than broken: the
+  // Iranian hosts (BrsAPI, TGJU, Nobitex, Wallex) refuse Cloudflare's egress,
+  // while the same endpoints answer fine from the Actions runner. So a failure
+  // is not the end of the story — fall back to the last price the evaluation
+  // tier recorded in runtime.json, which this tier already reads for /list.
+  //
+  // The log line matters: fetchAssetPrice returns adapter errors as DATA and
+  // never throws, so without this nothing about a total outage reaches `wrangler
+  // tail` and the failure is invisible to operators.
+  const failed = order.filter((a) => !(all[a] && all[a].ok));
+  let runtime = null;
+  let runtimeExists = false;
+  let runtimeError = null;
+
+  if (failed.length) {
+    for (const a of failed) {
+      const why = (all[a].attempts || []).map((x) => `${x.adapter}=${x.error}`).join(' | ');
+      console.warn('price_chain_failed', a, why);
     }
-    lines.push('');
+    try {
+      const state = await readState(env);
+      runtime = state.runtime;
+      runtimeExists = state.runtimeExists;
+    } catch (e) {
+      runtimeError = String((e && e.message) || e);
+      console.error('price_runtime_read_failed', runtimeError);
+    }
+  }
+
+  const ctx = { runtime, runtimeExists, runtimeError };
+  const lines = ['<b>قیمت لحظه‌ای</b>', ''];
+  for (const asset of order) {
+    lines.push(...renderPriceBlock(asset, all[asset], ctx), '');
+  }
+
+  if (failed.length && runtime && runtime.last_run_at) {
+    lines.push(`<i>آخرین اجرای تِیر ارزیابی: ${escapeHtml(fmtAgo(runtime.last_run_at))}</i>`);
   }
   lines.push(`<i>${escapeHtml(ASSET_META.GOLD18.faLong)}</i>`);
   lines.push(`زمان: ${fmtTehran(Date.now())} به وقت تهران`);

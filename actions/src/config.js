@@ -10,8 +10,20 @@ function envStr(name, fallback = '') {
   return v === undefined || v === null || v === '' ? fallback : String(v).trim();
 }
 
+/**
+ * NOTE the empty-string case, which is not hypothetical: the workflow passes
+ * every tunable as `VAR: ${{ vars.VAR }}`, and an UNSET repository variable
+ * interpolates to an empty string rather than being absent. `Number('')` is 0
+ * and `Number.isFinite(0)` is true, so reading the env directly would return 0
+ * for every unset tunable and never reach the fallback — which set
+ * `timeoutMs: 0` and made AbortSignal.timeout abort every request before it
+ * left the runner. Delegate to envStr, which already collapses '' to the
+ * fallback, exactly as envBool and envList do.
+ */
 function envNum(name, fallback) {
-  const v = Number(process.env[name]);
+  const raw = envStr(name);
+  if (!raw) return fallback;
+  const v = Number(raw);
   return Number.isFinite(v) ? v : fallback;
 }
 
